@@ -1,0 +1,141 @@
+---
+title: "Vector Guide"
+author: "Anne Stahlfeld"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+### Set up mosquito species
+
+EMOD allows us to specify the distribution of mosquito species in the simulation, and to specify life cycle, larval habitat, and transmission parameters for each species. 
+
+#### Single Vector Species
+
+The example below would populate the model with 100% gambiae mosquitoes and can be included in the config builder with a simple [`add_species()`](https://github.com/numalariamodeling/emodpy-malaria/blob/main/emodpy_malaria/malaria_config.py).
+
+```{python, eval=F}
+import emodpy_malaria.malaria_config as conf
+conf.add_species(config, manifest, ["gambiae"])
+```
+
+Default parameters will appear in the config file for *A. gambiae*. Some defaults differ between species and EMOD defaults can be found [here](https://github.com/numalariamodeling/emodpy-malaria/blob/main/emodpy_malaria/malaria_vector_species_params.py).
+
+
+#### Multiple Vector Species
+
+We can also include a mix of vector species, adding multiple vector populations with species-specific parameters.
+
+```{python, eval=F}
+import emodpy_malaria.malaria_config as conf
+conf.add_species(config, manifest, species_to_select=["gambiae", "arabiensis"])
+```
+
+For each species listed in Vector_Species_Params, a “VectorPopulation” object will be added to the simulation at each node. Each species will be defined by parameters in the simulation configuration file for the vector ecology and behavior of the species. This allows for a mechanistic description of vector abundances and behavior through the effects of climate and weather on different preferred larval habitats.
+
+#### Modify vector species parameters
+
+To change vector species parameters from defaults, use the [`set_species_param()`](https://github.com/numalariamodeling/emodpy-malaria/blob/main/emodpy_malaria/vector_config.py) function.
+
+```{python, eval=F}
+import emodpy_malaria.malaria_config as conf
+# Example: Decrease the 'Transmission_Rate' of A. arabiensis from 0.9 (default) to 0.75.
+conf.set_species_param(config, 
+                     species="arabiensis", 
+                     parameter="Transmission_Rate", 
+                     value=0.75, 
+                     overwrite=False # If True, replaces any previous stored values
+                     )
+```
+
+#### Modify species habitat parameters
+
+The larval habitat parameters for each vector species can also be modified.
+
+```{python, eval=F}
+import emodpy_malaria.malaria_config as conf
+# Example: Add brackish swamp habitat availability for A. arabiensis only. 
+new_habitats = {"arabiensis": {"BRACKISH_SWAMP": 1.7e9, "Max_Larval_Capacity": 30000000.0}}
+for species, habitat in new_habitats.items():
+    conf.set_species_param(config, species,
+                         parameter="Larval_Habitat_Types", 
+                         value= habitat, 
+                         overwrite=False # Does not delete previous habitat types
+                         )
+```
+
+### Change mosquito abundance
+
+After adding vectors to your model, you may want to alter their abundance in order to reach a desired entomological innoculation rate (EIR), malaria prevalence, or malaria incidence. In EMOD this is often done by re-scaling the amount of habitat available for larval development: Available habitat is directly related to mosquito abundance, and mosquito abundance in turn is directly related to biting rate. 
+
+There are several options for configuring habitat. You can first set habitat parameters and modify them directly as detailed in the section [Set up mosquito species](https://faculty-enrich-2022.netlify.app/modules/emod-how-to/emod-how-to/#set-up-mosquito-species).***new link***
+
+After those initial parameters are set, habitat can be modified with scaling parameters.
+
+#### Universal Habitat Scaling
+
+To apply a constant scale factor to all habitats equally for all species, use the **x_Temporary_Larval_Habitat** configuration parameter.
+
+This parameter will scale all habitat parameters for the entire simulation duration without changing the temporal dynamics, so that a new transmission is achieved with the same ratios among the species and same time profile. For example, setting `x_Temporary_Larval_Habitat` to 0.1 would reduce habitat by 90%. 
+
+```{python, eval=F}
+# Ex: Reduce habitat (and thus, adult vectors and biting rate) by 90%.
+config.parameters.x_Temporary_Larval_Habitat = 0.1  
+```
+
+#### Dynamic Habitat Scaling during Simulation
+
+The [`ScaleLarvalHabitat`](https://docs.idmod.org/projects/emod-malaria/en/latest/parameter-campaign-node-scalelarvalhabitat.html) intervention allows the user to scale habitats by type and species at a specified time during the simulation. The `emodpy-malaria` function [`add_scale_larval_habitats()`](https://github.com/numalariamodeling/emodpy-malaria/blob/main/emodpy_malaria/interventions/scale_larval_habitats.py) takes a dataframe argument to construct the campaign events for habitat scaling:
+
+```{python, eval=F}
+from emodpy_malaria.interventions.scale_larval_habitat import add_scale_larval_habitats
+add_scale_larval_habitats(campaign, df=habitat_df, start_day=0)
+```
+
+The `habitat_df` argument requires column name(s) for each habitat type being scaled, with column values being the scale factor(s). Many configuration options are available, including by species, by node, and by date with additional details in the [documentation](https://docs.idmod.org/projects/emodpy-malaria/en/latest/emodpy_malaria.interventions.scale_larval_habitats.html).
+
+### Set up vector genetics
+
+```{python,eval=F}
+from emodpy_malaria import vector_config as vector_config
+config.parameters.Simulation_Type = "VECTOR_SIM"
+vector_config.set_team_defaults(config, manifest)  # team defaults
+vector_config.add_species(config, manifest, ["gambiae", "funestus"])
+
+vector_config.add_genes_and_alleles(config, manifest, "gambiae", 
+                                  [("a", 0.85), ("b", 0.1), ("c", 0.05)])
+                                  
+vector_config.add_mutation(config, manifest, "gambiae", 
+                                    mutate_from="a", mutate_to="b", probability=0.05)
+vector_config.add_mutation(config, manifest, "gambiae", 
+                                    mutate_from="b", mutate_to="c", probability=0.1)
+vector_config.add_mutation(config, manifest, "gambiae", 
+                                    mutate_from="c", mutate_to="a", probability=0.1)
+vector_config.add_mutation(config, manifest, "gambiae", 
+                                    mutate_from="a", mutate_to="c", probability=0.03)
+```
+
+Additional details on setting up vector genetics are included in the [documentaiton](https://docs.idmod.org/projects/emodpy-malaria/en/latest/emodpy_malaria.vector_config.html#emodpy_malaria.vector_config.add_genes_and_alleles).
+
+Reporting on vector genetics (abundance of alleles and/or genotypes) is requested like so, with additional [parameters availabe](https://docs.idmod.org/projects/emodpy-malaria/en/latest/emodpy_malaria.reporters.builtin.html#emodpy_malaria.reporters.builtin.add_report_vector_genetics):
+
+```{python,eval=F}
+from emodpy_malaria.reporters.builtin import *
+add_report_vector_genetics(task, manifest, species = 'gambiae',
+                            gender = 'VECTOR_FEMALE',
+                            include_vector_state = False,
+                            stratify_by = 'ALLELE_FREQ')
+```
+
+#### Relate genotype to phenotype
+
+The `Insecticides` config param is a list of dictionaries, one per insecticide. For each insecticide, genotype-specific modifications of killing, blocking, repelling, and larval killing can be set and resistance can be added using [`add_insecticide_resistance()`](https://docs.idmod.org/projects/emodpy-malaria/en/latest/emodpy_malaria.vector_config.html#emodpy_malaria.vector_config.add_insecticide_resistance). In this example, all *A. gambiae* vectors with an allele combination of "bb" will be completely resistant to pyrethroid.
+
+```{python,eval=F}
+from emodpy_malaria import vector_config as vector_config
+vector_config.add_insecticide_resistance(config, manifest, "pyrethroid", "gambiae", 
+                                          allele_combo=[["b", "b"]],
+                                          blocking=0.0, 
+                                          killing=0.0,
+                                          repelling=0.0,
+                                          larval_killing=0.0)
+```
